@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stacker Practice Simulator</title>
+<style>
+  :root { --red:#e5383b; --yellow:#f6c026; --ink:#14181d; --panel:rgba(20,24,29,.82); --text:#eef1f4; --dim:#9aa5b1; --accent:#f2a900; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; overflow:hidden; background:#bfc9d1; font-family: system-ui, "Segoe UI", sans-serif; color:var(--text); }
+  canvas { position:fixed; inset:0; width:100%; height:100%; display:block; }
+  .panel { background:var(--panel); border:1px solid rgba(255,255,255,.12); border-radius:10px; backdrop-filter: blur(4px); }
+  #hud { position:fixed; left:12px; top:12px; width:310px; padding:12px 14px; font-size:14px; line-height:1.5; }
+  #hud .row { display:flex; justify-content:space-between; gap:8px; }
+  #hud b { font-variant-numeric: tabular-nums; }
+  #hmode { font-weight:700; color:var(--accent); margin-bottom:2px; }
+  .chip { display:inline-block; min-width:1.6em; text-align:center; padding:0 6px; border-radius:4px; font-weight:700; color:#111; }
+  .chip.r { background:var(--red); color:#fff; } .chip.y { background:var(--yellow); }
+  #hlog { margin:6px 0 0; padding:0; list-style:none; font-size:12.5px; color:var(--dim); }
+  #hlog li { margin-top:2px; } #hlog li.r { color:#ff8a8d; } #hlog li.y { color:#ffd866; }
+  #hhint { margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,.12); font-size:13px; color:#cfe8ff; }
+  #hhint:empty { display:none; }
+  #bar { position:fixed; left:50%; bottom:10px; transform:translateX(-50%); padding:6px 14px; font-size:12.5px; color:var(--dim); white-space:nowrap; max-width:96vw; overflow:hidden; text-overflow:ellipsis; }
+  #bar kbd { background:#2b333c; color:var(--text); border-radius:4px; padding:0 5px; margin:0 1px; font-family:inherit; }
+  #toasts { position:fixed; top:14px; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; gap:6px; align-items:center; pointer-events:none; }
+  .toast { padding:8px 14px; border-radius:8px; font-weight:600; font-size:14px; animation: fade 4.5s forwards; }
+  .toast.r { background:var(--red); color:#fff; } .toast.y { background:var(--yellow); color:#111; } .toast.i { background:#2d6cdf; color:#fff; }
+  @keyframes fade { 0%{opacity:0; transform:translateY(-6px)} 6%{opacity:1; transform:none} 80%{opacity:1} 100%{opacity:0} }
+  .overlay { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(10,14,18,.55); padding:16px; }
+  .overlay .box { width:min(620px,100%); max-height:94vh; overflow:auto; padding:22px 24px; }
+  h1 { margin:0 0 4px; font-size:24px; } h2 { margin:0 0 8px; font-size:22px; }
+  .sub { color:var(--dim); margin:0 0 14px; font-size:14px; }
+  button { display:block; width:100%; margin:8px 0; padding:12px 14px; font:inherit; font-weight:600; color:#111; background:var(--accent); border:0; border-radius:8px; cursor:pointer; text-align:left; }
+  button:hover { filter:brightness(1.1); } button.sec { background:#2b333c; color:var(--text); }
+  button small { display:block; font-weight:400; opacity:.8; }
+  .grid { display:grid; grid-template-columns: auto 1fr; gap:3px 12px; font-size:13px; margin-top:12px; color:var(--dim); }
+  .grid kbd { background:#2b333c; color:var(--text); border-radius:4px; padding:0 6px; font-family:inherit; justify-self:start; }
+  #resTitle.pass { color:#5bd67a; } #resTitle.fail { color:#ff6b6e; }
+  #resList { padding-left:18px; margin:8px 0; font-size:14px; } #resList li.r { color:#ff8a8d; } #resList li.y { color:#ffd866; }
+  .hide { display:none !important; }
+  @media (max-width:640px) { #hud { width:calc(100vw - 24px); } #bar { display:none; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud" class="panel hide">
+  <div id="hmode"></div>
+  <div class="row"><span>Time</span><b id="htimer">00:00.0</b></div>
+  <div class="row"><span>Speed</span><b><span id="hspeed">0.0</span> km/h</b></div>
+  <div class="row"><span>Fork height</span><b><span id="hfork">0</span> cm</b></div>
+  <div class="row"><span>Fork in pallet</span><b id="hins">-</b></div>
+  <div class="row"><span>Pallets done</span><b id="hdone">0 / 6</b></div>
+  <div class="row"><span>Flags</span><span><span class="chip r"><span id="hred">0</span>/1</span> <span class="chip y"><span id="hyel">0</span>/4</span></span></div>
+  <ul id="hlog"></ul>
+  <div id="hhint"></div>
+</div>
+<div id="toasts"></div>
+<div id="bar" class="panel hide"><kbd>&uarr;</kbd><kbd>&darr;</kbd> drive &nbsp; <kbd>&larr;</kbd><kbd>&rarr;</kbd> steer &nbsp; <kbd>Space</kbd> brake &nbsp; <kbd>R</kbd><kbd>F</kbd> forks up/down &nbsp; <kbd>C</kbd> camera &nbsp; <kbd>H</kbd> hints &nbsp; <kbd>Enter</kbd> restart &nbsp; <kbd>Esc</kbd> menu</div>
+
+<div id="menu" class="overlay">
+  <div class="box panel">
+    <h1>Stacker Practice Simulator</h1>
+    <p class="sub">Electric stand-on stacker &middot; the warehouse exercises from the gaffeltruck test</p>
+    <button data-mode="free">Free drive<small>No tasks, no flags. Walls and racks just block you.</small></button>
+    <button data-mode="AB">Tyre pallets: rack A &rarr; rack B<small>6 pallets from the deep rack, turned in the metal frame, into the pallet rack.</small></button>
+    <button data-mode="BA">Tyre pallets: rack B &rarr; rack A<small>6 pallets from the pallet rack, turned in the metal frame, into the deep rack.</small></button>
+    <div class="grid">
+      <kbd>&uarr; &darr;</kbd><span>Forward / reverse. Hold to build speed, release to coast.</span>
+      <kbd>&larr; &rarr;</kbd><span>Steer</span>
+      <kbd>Space</kbd><span>Brake</span>
+      <kbd>R / F</kbd><span>Raise / lower forks</span>
+      <kbd>C</kbd><span>Camera: chase, operator, top-down</span>
+      <kbd>H</kbd><span>Show / hide the task hint</span>
+      <kbd>Enter</kbd><span>Restart the current exercise</span>
+      <kbd>Esc</kbd><span>Back to this menu</span>
+    </div>
+    <div class="grid">
+      <span style="color:#ff8a8d">Red (1 = out)</span><span>Collision. Uneven stacking: sticking out, not centered, crooked or not flat.</span>
+      <span style="color:#ffd866">Yellow (4th = out)</span><span>Hard hit. Wrong load or unload order. Driving with the forks raised.</span>
+    </div>
+  </div>
+</div>
+
+<div id="result" class="overlay hide">
+  <div class="box panel">
+    <h2 id="resTitle"></h2>
+    <div id="resSummary" class="sub"></div>
+    <ul id="resList"></ul>
+    <button id="resRestart">Try again <small>Enter</small></button>
+    <button id="resMenu" class="sec">Menu <small>Esc</small></button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" integrity="sha384-CI3ELBVUz9XQO+97x6nwMDPosPR5XvsxW2ua7N1Xeygeh1IxtgqtCkGfQY9WWdHu" crossorigin="anonymous"></script>
+<script>
+(() => {
+'use strict';
+
+/* ------------------------------------------------------------------ constants */
+const D2R = Math.PI / 180;
+const PAL_L = 1.2, PAL_W = 0.8, PAL_H = 0.86;          // euro pallet + tyres (long axis = local X)
+const OPEN_H = 0.14;                                   // pallet fork opening height
+const FORK_LEN = 1.15, FORK_THK = 0.05, FORK_GAP = 0.2, FORK_W = 0.1;
+const FORK_MIN = 0.05, FORK_MAX = 2.0, FORK_SPEED = 0.35;
+const TRUCK_HW = 0.4, BODY_LEN = 1.5;
+const VMAX = 6 / 3.6;                                  // 6 km/h
+const LEVELS = [0.15, 1.55];                           // beam top heights (bottom, top)
+const FACE_A = -9.4, BACK_A = -11.8, FACE_B = 9.4, BACK_B = 10.65;
+const SH = 0.01, YSH = 0.015;                          // collision shrink so touching is not a hit
+const HARD_HIT_SPEED = 0.5 / 3.6;                      // m/s
+const LAT_TOL = 0.14, ANG_TOL = 10 * D2R, INSERT_MIN = 0.6;
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const approach = (v, t, d) => v < t ? Math.min(t, v + d) : Math.max(t, v - d);
+const normPi = a => { a = ((a % Math.PI) + Math.PI) % Math.PI; return a > Math.PI / 2 ? a - Math.PI : a; };
+
+/* ------------------------------------------------------------------ three.js scene */
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xbfc9d1);
+const camera = new THREE.PerspectiveCamera(60, 1, 0.05, 150);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x6d7782, 0.75));
+const sun = new THREE.DirectionalLight(0xffffff, 0.7);
+sun.position.set(8, 20, 7);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -16, right: 16, top: 12, bottom: -12, near: 1, far: 50 });
+scene.add(sun);
+
+const matCache = {};
+const mat = (c, o = {}) => { const k = c + JSON.stringify(o); return matCache[k] || (matCache[k] = new THREE.MeshLambertMaterial(Object.assign({ color: c }, o))); };
+function box(w, h, d, color, x, y, z, parent) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color));
+  m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true;
+  (parent || scene).add(m); return m;
+}
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize); resize();
+
+/* ---- room */
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(24, 18), mat(0x9ba1a7));
+floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+const WALL = 0xdde2e6;
+box(0.1, 4.5, 18.2, WALL, -12.05, 2.25, 0); box(0.1, 4.5, 18.2, WALL, 12.05, 2.25, 0);
+box(24.2, 4.5, 0.1, WALL, 0, 2.25, -9.05); box(24.2, 4.5, 0.1, WALL, 0, 2.25, 9.05);
+function stripe(w, d, x, z, color = 0xe6c200) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat(color));
+  m.rotation.x = -Math.PI / 2; m.position.set(x, 0.01, z); m.receiveShadow = true; scene.add(m);
+}
+// stop lines at the rack faces and aisle edges
+stripe(0.1, 3.2, FACE_A + 0.9, 0); stripe(0.1, 4.6, FACE_B - 0.9, 0);
+stripe(24, 0.08, 0, -7.6, 0xffffff); stripe(24, 0.08, 0, 7.6, 0xffffff);
+
+/* ---- rack A: deep rack, 1 lane, 3 deep, 2 levels (rails + posts) */
+const BLUE = 0x1e4fa3, ORANGE = 0xe8730c;
+[FACE_A, BACK_A + 0.05].forEach(x => [-0.7, 0.7].forEach(z => box(0.1, 3.3, 0.1, BLUE, x, 1.65, z)));
+LEVELS.forEach(ly => [-0.625, 0.625].forEach(z => box(2.4, 0.08, 0.15, ORANGE, (FACE_A + BACK_A) / 2, ly - 0.04, z)));
+[-0.7, 0.7].forEach(z => box(2.45, 0.08, 0.1, BLUE, (FACE_A + BACK_A) / 2, 3.25, z));
+box(0.1, 3.0, 1.5, 0x3a4048, BACK_A - 0.05, 1.5, 0);
+
+/* ---- rack B: pallet rack, 3 slots wide, 2 levels */
+[FACE_B, FACE_B + 1.25].forEach(x => [-1.75, 1.75].forEach(z => box(0.1, 3.3, 0.1, BLUE, x, 1.65, z)));
+LEVELS.forEach(ly => [FACE_B + 0.05, FACE_B + 1.2].forEach(x => box(0.1, 0.08, 3.5, ORANGE, x, ly - 0.04, 0)));
+[FACE_B, FACE_B + 1.25].forEach(x => box(0.1, 0.08, 3.5, BLUE, x, 3.25, 0));
+box(0.08, 3.0, 3.5, 0x3a4048, BACK_B + 0.04, 1.5, 0);
+
+/* ---- metal turning frame (pallet-sized) */
+const frame = { x: 0, z: 0, ang: Math.PI / 2, mesh: new THREE.Group() };
+(function () {
+  const g = frame.mesh, steel = 0x4b5563;
+  box(1.2, 0.05, 0.07, steel, 0, 0.025, 0.365, g); box(1.2, 0.05, 0.07, steel, 0, 0.025, -0.365, g);
+  box(0.07, 0.05, 0.8, steel, 0.565, 0.025, 0, g); box(0.07, 0.05, 0.8, steel, -0.565, 0.025, 0, g);
+  scene.add(g);
+})();
+
+/* ---- pallets */
+const palletGeo = {
+  board: new THREE.BoxGeometry(1.2, 0.022, 0.1), block: new THREE.BoxGeometry(0.14, 0.098, 0.14),
+  plank: new THREE.BoxGeometry(0.12, 0.02, 0.8), tyre: new THREE.TorusGeometry(0.2, 0.09, 8, 16)
+};
+function makePalletMesh() {
+  const g = new THREE.Group(), wood = mat(0xc9a36a), rubber = mat(0x24272b);
+  const add = (geo, m, x, y, z, rx) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); if (rx) o.rotation.x = rx; o.castShadow = true; o.receiveShadow = true; g.add(o); };
+  [-0.35, 0, 0.35].forEach(z => add(palletGeo.board, wood, 0, 0.011, z));
+  [-0.53, 0, 0.53].forEach(x => [-0.33, 0, 0.33].forEach(z => add(palletGeo.block, wood, x, 0.071, z)));
+  for (let i = 0; i < 7; i++) add(palletGeo.plank, wood, -0.54 + i * 0.18, 0.13, 0);
+  [-0.3, 0.3].forEach(x => { for (let k = 0; k < 4; k++) add(palletGeo.tyre, rubber, x, 0.14 + 0.09 + k * 0.18, 0, Math.PI / 2); });
+  scene.add(g); return g;
+}
+
+/* ---- the stacker */
+const truckGroup = new THREE.Group(), forkGroup = new THREE.Group();
+(function () {
+  const g = truckGroup, YEL = 0xf2a900, DARK = 0x2f353c, STEEL = 0x8b95a1;
+  box(1.05, 0.75, 0.78, YEL, -0.72, 0.5, 0, g);                      // battery housing
+  box(0.4, 0.05, 0.7, DARK, -1.4, 0.08, 0, g);                      // standing platform
+  box(0.14, 0.4, 0.56, DARK, -1.05, 1.07, 0, g);                    // console
+  [-0.36, 0.36].forEach(z => box(0.04, 1.1, 0.04, DARK, -1.58, 0.65, z, g));
+  [-0.3, 0.3].forEach(z => box(0.08, 2.3, 0.1, DARK, -0.06, 1.15, z, g));   // mast
+  box(0.08, 0.08, 0.7, DARK, -0.06, 2.28, 0, g); box(0.08, 0.08, 0.7, DARK, -0.06, 1.1, 0, g);
+  const wheel = (r, w, x, z) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, w, 14), mat(0x15181b)); m.rotation.x = Math.PI / 2; m.position.set(x, r, z); m.castShadow = true; g.add(m); };
+  wheel(0.13, 0.1, -0.7, 0); wheel(0.06, 0.05, -1.2, -0.3); wheel(0.06, 0.05, -1.2, 0.3);
+  wheel(0.04, 0.05, 1.1, -FORK_GAP); wheel(0.04, 0.05, 1.1, FORK_GAP);
+  box(0.08, 0.45, 0.7, STEEL, 0.04, 0.2, 0, forkGroup);             // carriage
+  [-FORK_GAP, FORK_GAP].forEach(z => box(FORK_LEN, FORK_THK, FORK_W, STEEL, FORK_LEN / 2, -FORK_THK / 2, z, forkGroup));
+  g.add(forkGroup); scene.add(g);
+})();
+
+/* ------------------------------------------------------------------ slots */
+const slots = [];
+for (let lvl = 0; lvl < 2; lvl++) {
+  for (let pos = 1; pos <= 3; pos++)
+    slots.push({ rack: 'A', lvl, pos, type: 'pos' + pos, x: FACE_A - 0.8 * (pos - 0.5), z: 0, ang: Math.PI / 2, occ: null });
+  for (let k = 0; k < 3; k++)
+    slots.push({ rack: 'B', lvl, k, type: k === 1 ? 'mid' : 'side', x: FACE_B + 0.62, z: (k - 1) * 1.1, ang: 0, occ: null });
+}
+const slotsOf = r => slots.filter(s => s.rack === r);
+
+const ORD_A_LOAD = [[0, 3], [1, 3], [0, 2], [1, 2], [0, 1], [1, 1]];
+const ORD_A_UNLOAD = ORD_A_LOAD.slice().reverse();
+const ORD_B_LOAD = [[0, 'side'], [0, 'side'], [0, 'mid'], [1, 'side'], [1, 'side'], [1, 'mid']];
+const ORD_B_UNLOAD = ORD_B_LOAD.slice().reverse();
+const matchDesc = (s, d) => s.lvl === d[0] && (s.rack === 'A' ? s.pos === d[1] : s.type === d[1]);
+const descText = (rack, d) => rack === 'A'
+  ? (d[0] ? 'top' : 'bottom') + ' level, position ' + d[1] + (d[1] === 1 ? ' (front)' : d[1] === 3 ? ' (back)' : '')
+  : (d[0] ? 'top' : 'bottom') + ' level, ' + (d[1] === 'mid' ? 'middle' : 'side') + ' slot';
+const slotText = s => descText(s.rack, [s.lvl, s.rack === 'A' ? s.pos : s.type]);
+
+/* ------------------------------------------------------------------ state */
+const truck = { x: 0, z: 6.5, th: -Math.PI / 2, v: 0, T: 0, steer: 0, yf: 0.1 };
+const pallets = [];
+for (let i = 0; i < 6; i++) pallets.push({ id: i, mesh: makePalletMesh(), x: 0, z: 0, y: 0, ang: 0, where: 'slot', slot: null, carried: false, stage: 'src', turned: false, entry: null, off: null });
+
+let appState = 'menu';                 // menu | run | result
+let mode = null;                       // 'free' | 'AB' | 'BA'
+let ex = null;                         // exercise state (null in free drive)
+let flags = { red: [], yellow: [] };
+let clock = 0, started = false;
+let showHint = true, camMode = 0;
+let highDist = 0, highFlagged = false;
+const keys = {};
+let hardHitCooldown = 0;
+
+/* ------------------------------------------------------------------ collision geometry */
+function R(cx, cz, sx, sz, ang, y0, y1) {
+  return { cx, cz, hx: Math.max(0.001, sx / 2 - SH), hz: Math.max(0.001, sz / 2 - SH), c: Math.cos(ang), s: Math.sin(ang), y0: y0 + YSH, y1: y1 - YSH };
+}
+function overlap(a, b) {
+  if (a.y0 >= b.y1 || b.y0 >= a.y1) return false;
+  const dx = b.cx - a.cx, dz = b.cz - a.cz;
+  const axes = [[a.c, a.s], [-a.s, a.c], [b.c, b.s], [-b.s, b.c]];
+  for (const [ax, az] of axes) {
+    const ra = a.hx * Math.abs(ax * a.c + az * a.s) + a.hz * Math.abs(-ax * a.s + az * a.c);
+    const rb = b.hx * Math.abs(ax * b.c + az * b.s) + b.hz * Math.abs(-ax * b.s + az * b.c);
+    if (Math.abs(dx * ax + dz * az) >= ra + rb) return false;
+  }
+  return true;
+}
+const hardStatic = [];
+const softStatic = [];
+(function () {
+  const W = (x, z, sx, sz) => hardStatic.push({ name: 'a wall', r: R(x, z, sx, sz, 0, 0, 4.5) });
+  W(-12.05, 0, 0.1, 18.2); W(12.05, 0, 0.1, 18.2); W(0, -9.05, 24.2, 0.1); W(0, 9.05, 24.2, 0.1);
+  const P = (x, z) => hardStatic.push({ name: 'a rack post', r: R(x, z, 0.1, 0.1, 0, 0, 3.3) });
+  [FACE_A, BACK_A + 0.05].forEach(x => [-0.7, 0.7].forEach(z => P(x, z)));
+  [FACE_B, FACE_B + 1.25].forEach(x => [-1.75, 1.75].forEach(z => P(x, z)));
+  LEVELS.forEach(ly => [-0.625, 0.625].forEach(z => hardStatic.push({ name: 'the rack beam', r: R((FACE_A + BACK_A) / 2, z, 2.4, 0.15, 0, ly - 0.08, ly) })));
+  softStatic.push({ name: 'the back of rack A', r: R(BACK_A - 0.05, 0, 0.1, 1.5, 0, 0, 3) });
+  softStatic.push({ name: 'the back of rack B', r: R(BACK_B + 0.04, 0, 0.08, 3.5, 0, 0, 3) });
+})();
+
+const fwdOf = () => ({ x: Math.cos(truck.th), z: Math.sin(truck.th) });
+const rgtOf = () => ({ x: -Math.sin(truck.th), z: Math.cos(truck.th) });
+const palletRect = p => R(p.x, p.z, PAL_L, PAL_W, p.ang, p.y, p.y + PAL_H);
+
+/* Alignment of the forks with a pallet. axis 'X' = along the pallet length (short-side entry), 'Z' = along its width (long-side entry). */
+function forkFit(p) {
+  const rel = normPi(truck.th - p.ang);
+  let axis = null;
+  if (Math.abs(rel) < ANG_TOL) axis = 'X'; else if (Math.PI / 2 - Math.abs(rel) < ANG_TOL) axis = 'Z';
+  const f = fwdOf(), r = rgtOf(), dx = p.x - truck.x, dz = p.z - truck.z;
+  const a = dx * f.x + dz * f.z, lat = dx * r.x + dz * r.z;
+  const h = axis === 'Z' ? PAL_W / 2 : PAL_L / 2;
+  const depth = Math.max(0, Math.min(FORK_LEN, a + h) - Math.max(0, a - h));
+  return { axis, lat, ratio: depth / (2 * h), entry: axis === 'X' ? 'short' : 'long' };
+}
+function forkLegit(p) {
+  const fit = forkFit(p);
+  return fit.axis !== null && Math.abs(fit.lat) <= LAT_TOL &&
+    truck.yf >= p.y + 0.05 - 0.004 && truck.yf <= p.y + OPEN_H + 0.004;
+}
+function forkPointsInside(p) {
+  const f = fwdOf(), r = rgtOf(), c = Math.cos(p.ang), s = Math.sin(p.ang);
+  for (let t = 0.05; t <= FORK_LEN + 1e-6; t += 0.1) {
+    for (const side of [-FORK_GAP, FORK_GAP]) {
+      const px = truck.x + f.x * t + r.x * side - p.x, pz = truck.z + f.z * t + r.z * side - p.z;
+      const u = px * c + pz * s, w = -px * s + pz * c;
+      if (Math.abs(u) < PAL_L / 2 - 0.02 && Math.abs(w) < PAL_W / 2 - 0.02) return true;
+    }
+  }
+  return false;
+}
+function truckRects() {
+  const f = fwdOf(), r = rgtOf(), th = truck.th;
+  const body = R(truck.x - f.x * BODY_LEN / 2, truck.z - f.z * BODY_LEN / 2, BODY_LEN, TRUCK_HW * 2, th, 0.02, 1.9);
+  const forks = [-FORK_GAP, FORK_GAP].map(s =>
+    R(truck.x + f.x * FORK_LEN / 2 + r.x * s, truck.z + f.z * FORK_LEN / 2 + r.z * s, FORK_LEN, FORK_W, th, truck.yf - FORK_THK, truck.yf));
+  return { body, forks };
+}
+
+/* returns null, or {kind:'hard'|'soft', msg} */
+function collide() {
+  const { body, forks } = truckRects();
+  const carried = pallets.find(p => p.carried);
+  const cr = carried ? palletRect(carried) : null;
+  for (const o of hardStatic) {
+    if (overlap(body, o.r)) return { kind: 'hard', msg: 'Truck hit ' + o.name };
+    for (const fk of forks) if (overlap(fk, o.r)) return { kind: 'hard', msg: 'Forks hit ' + o.name };
+    if (cr && overlap(cr, o.r)) return { kind: 'hard', msg: 'Pallet hit ' + o.name };
+  }
+  for (const o of softStatic) {
+    if (overlap(body, o.r)) return { kind: 'hard', msg: 'Truck hit ' + o.name };
+    if (!carried) for (const fk of forks) if (overlap(fk, o.r)) return { kind: 'soft', msg: 'Forks pushed into ' + o.name };
+    if (cr && overlap(cr, o.r)) return { kind: 'soft', msg: 'Pallet pushed into ' + o.name };
+  }
+  for (const p of pallets) {
+    if (p.carried) continue;
+    const pr = palletRect(p);
+    if (overlap(body, pr)) return { kind: 'hard', msg: 'Truck hit a pallet' };
+    if (cr && overlap(cr, pr)) return { kind: p.where === 'slot' ? 'soft' : 'hard', msg: p.where === 'slot' ? 'Pallet pushed into another pallet' : 'Pallet hit another pallet' };
+    const forksAtPalletHeight = truck.yf - FORK_THK < p.y + PAL_H - YSH && truck.yf > p.y + YSH;
+    // forks are longer than the pallet is deep (long-side entry): while carrying, the pallet is the leading edge
+    if (!carried && forksAtPalletHeight && forkPointsInside(p) && !forkLegit(p)) return { kind: 'hard', msg: 'Forks hit a pallet (wrong height, angle or side position)' };
+  }
+  return null;
+}
+
+/* ------------------------------------------------------------------ flags */
+const hudLog = document.getElementById('hlog');
+function toast(msg, cls) {
+  const d = document.createElement('div'); d.className = 'toast ' + cls; d.textContent = msg;
+  document.getElementById('toasts').appendChild(d); setTimeout(() => d.remove(), 4600);
+}
+function logFlag(kind, msg) {
+  const li = document.createElement('li'); li.className = kind === 'red' ? 'r' : 'y'; li.textContent = fmtTime(clock) + '  ' + msg; hudLog.appendChild(li);
+}
+function addYellow(msg) {
+  if (!ex) return;
+  flags.yellow.push({ msg, t: clock }); logFlag('yellow', msg); toast('Yellow flag: ' + msg, 'y');
+  if (flags.yellow.length >= 4) finish(false, 'Fourth yellow flag');
+}
+function addRed(msg) {
+  if (!ex) return;
+  flags.red.push({ msg, t: clock }); logFlag('red', msg); toast('Red flag: ' + msg, 'r');
+  finish(false, 'Red flag');
+}
+function fmtTime(t) { const m = Math.floor(t / 60), s = t - m * 60; return String(m).padStart(2, '0') + ':' + s.toFixed(1).padStart(4, '0'); }
+
+function finish(pass, why) {
+  if (appState !== 'run') return;
+  appState = 'result';
+  const doneCount = pallets.filter(p => p.where === 'slot' && ex && p.slot.rack === ex.dst).length;
+  const t = document.getElementById('resTitle');
+  t.textContent = pass ? 'PASSED' : 'FAILED'; t.className = pass ? 'pass' : 'fail';
+  document.getElementById('resSummary').textContent =
+    (pass ? 'All 6 pallets moved. ' : why + '. ') + doneCount + ' / 6 pallets in rack ' + ex.dst + ' · time ' + fmtTime(clock) +
+    ' · red ' + flags.red.length + '/1 · yellow ' + flags.yellow.length + '/4';
+  const ul = document.getElementById('resList'); ul.innerHTML = '';
+  flags.red.concat(flags.yellow).sort((a, b) => a.t - b.t).forEach(f => {
+    const li = document.createElement('li'); li.className = flags.red.includes(f) ? 'r' : 'y';
+    li.textContent = fmtTime(f.t) + '  ' + (flags.red.includes(f) ? 'RED: ' : 'YELLOW: ') + f.msg; ul.appendChild(li);
+  });
+  if (!ul.children.length) { const li = document.createElement('li'); li.textContent = 'No flags. Clean run.'; ul.appendChild(li); }
+  document.getElementById('result').classList.remove('hide');
+}
+
+/* ------------------------------------------------------------------ pallet pick-up / put-down */
+function supportAt(p) {
+  let best = 0;
+  for (const s of slots) {
+    if (Math.hypot(p.x - s.x, p.z - s.z) < 0.45) { const ly = LEVELS[s.lvl]; if (ly <= p.y + 0.02 && ly > best) best = ly; }
+  }
+  return best;
+}
+
+function tryAttach() {
+  if (pallets.some(p => p.carried)) return;
+  for (const p of pallets) {
+    const fit = forkFit(p);
+    if (fit.axis && Math.abs(fit.lat) <= LAT_TOL && fit.ratio >= INSERT_MIN &&
+        truck.yf > p.y + OPEN_H + 0.003 && truck.yf < p.y + OPEN_H + 0.25) {
+      const f = fwdOf(), r = rgtOf(), dx = p.x - truck.x, dz = p.z - truck.z;
+      p.off = { a: dx * f.x + dz * f.z, b: dx * r.x + dz * r.z, d: p.ang - truck.th };
+      p.entry = fit.entry; p.y = truck.yf - OPEN_H; p.carried = true;
+      onPicked(p); return;
+    }
+  }
+}
+function updateCarried() {
+  const p = pallets.find(q => q.carried); if (!p) return;
+  const f = fwdOf(), r = rgtOf();
+  p.x = truck.x + f.x * p.off.a + r.x * p.off.b; p.z = truck.z + f.z * p.off.a + r.z * p.off.b;
+  p.ang = truck.th + p.off.d; p.y = truck.yf - OPEN_H;
+}
+function tryRelease() {
+  const p = pallets.find(q => q.carried); if (!p) return;
+  const sup = supportAt(p);
+  if (p.y <= sup + 0.0005) { p.y = sup; p.carried = false; onPlaced(p); }
+}
+
+function onPicked(p) {
+  const was = p.where, s = p.slot;
+  p.where = 'carried'; if (s) { s.occ = null; p.slot = null; }
+  if (!ex) return;
+  if (was === 'slot') {
+    if (s.rack === ex.src) {
+      const expected = ex.unloadOrder[ex.unloadCount];
+      if (expected && !matchDesc(s, expected)) addYellow('Wrong unload order: took ' + slotText(s) + ', expected ' + descText(ex.src, expected));
+      ex.unloadCount++; p.stage = 'carry1'; p.turned = false;
+    } else { ex.loadCount = Math.max(0, ex.loadCount - 1); p.stage = 'carry1'; p.turned = false; }
+  } else if (was === 'frame') {
+    const need = ex.dir === 'AB' ? 'short' : 'long';
+    if (p.entry !== need) { addYellow('Wrong side at the frame: picked up from the ' + p.entry + ' side, needed the ' + need + ' side'); p.turned = false; }
+    else p.turned = true;
+    p.stage = 'carry2';
+  } else p.stage = 'carry1';
+}
+
+function onPlaced(p) {
+  let best = null, bd = 0.5;
+  for (const s of slots) {
+    if (LEVELS[s.lvl] !== p.y || (s.occ && s.occ !== p)) continue;
+    const d = Math.hypot(p.x - s.x, p.z - s.z); if (d < bd) { bd = d; best = s; }
+  }
+  if (best) {
+    best.occ = p; p.slot = best; p.where = 'slot';
+    if (!ex) return;
+    const s = best, lat = p.z - s.z;
+    const toAisle = s.rack === 'A' ? p.x - s.x : s.x - p.x;
+    const angErr = Math.abs(normPi(p.ang - s.ang)) / D2R;
+    if (Math.abs(lat) > 0.25 || Math.abs(toAisle) > 0.25) addRed('Uneven stacking: pallet not resting flat on the beams');
+    else if (toAisle > 0.05) addRed('Uneven stacking: pallet sticks out ' + Math.round(toAisle * 100) + ' cm');
+    else if (Math.abs(lat) > 0.07) addRed('Uneven stacking: pallet not centered (' + Math.round(Math.abs(lat) * 100) + ' cm off)');
+    else if (angErr > 3) addRed('Uneven stacking: pallet crooked (' + angErr.toFixed(1) + '°)');
+    if (appState !== 'run') return;
+    if (s.rack === ex.dst) {
+      if (!p.turned) addYellow('Pallet was not turned in the metal frame');
+      const expected = ex.loadOrder[ex.loadCount];
+      if (expected && !matchDesc(s, expected)) addYellow('Wrong load order: put it in ' + slotText(s) + ', expected ' + descText(ex.dst, expected));
+      ex.loadCount++; p.stage = 'dst';
+      if (appState === 'run' && pallets.every(q => q.where === 'slot' && q.slot.rack === ex.dst)) finish(true, '');
+    } else { ex.unloadCount = Math.max(0, ex.unloadCount - 1); p.stage = 'src'; p.turned = false; }
+    return;
+  }
+  p.slot = null;
+  if (p.y === 0 && Math.hypot(p.x - frame.x, p.z - frame.z) < 0.4 && Math.abs(normPi(p.ang - frame.ang)) < 20 * D2R) {
+    p.where = 'frame'; if (ex) { p.stage = 'frame'; p.turned = false; }
+  } else {
+    p.where = 'floor';
+    if (ex) { p.stage = 'floor'; addYellow('Pallet put down outside the metal frame'); }
+  }
+}
+
+/* ------------------------------------------------------------------ start / reset */
+function startMode(m) {
+  mode = m;
+  hudLog.innerHTML = ''; flags = { red: [], yellow: [] };
+  clock = 0; started = false; highDist = 0; highFlagged = false; hardHitCooldown = 0;
+  Object.assign(truck, { x: 0, z: 6.5, th: -Math.PI / 2, v: 0, T: 0, steer: 0, yf: 0.1 });
+  slots.forEach(s => s.occ = null);
+  const srcRack = m === 'BA' ? 'B' : 'A';
+  ex = m === 'free' ? null : {
+    dir: m, src: srcRack, dst: srcRack === 'A' ? 'B' : 'A', unloadCount: 0, loadCount: 0,
+    unloadOrder: srcRack === 'A' ? ORD_A_UNLOAD : ORD_B_UNLOAD, loadOrder: srcRack === 'A' ? ORD_B_LOAD : ORD_A_LOAD
+  };
+  frame.ang = m === 'BA' ? 0 : Math.PI / 2;
+  frame.mesh.position.set(frame.x, 0, frame.z); frame.mesh.rotation.y = -frame.ang;
+  const src = slotsOf(srcRack);
+  pallets.forEach((p, i) => {
+    const s = src[i];
+    Object.assign(p, { x: s.x, z: s.z, y: LEVELS[s.lvl], ang: s.ang, where: 'slot', slot: s, carried: false, stage: 'src', turned: false, entry: null, off: null });
+    s.occ = p;
+  });
+  document.getElementById('hmode').textContent = m === 'free' ? 'Free drive' : 'Tyre pallets: rack ' + ex.src + ' → rack ' + ex.dst;
+  document.getElementById('menu').classList.add('hide');
+  document.getElementById('result').classList.add('hide');
+  document.getElementById('hud').classList.remove('hide');
+  document.getElementById('bar').classList.remove('hide');
+  appState = 'run'; setCam(camMode, true);
+}
+function showMenu() {
+  appState = 'menu';
+  document.getElementById('menu').classList.remove('hide');
+  document.getElementById('result').classList.add('hide');
+  document.getElementById('hud').classList.add('hide');
+  document.getElementById('bar').classList.add('hide');
+}
+
+/* ------------------------------------------------------------------ simulation step */
+function step(dt) {
+  const k = keys;
+  const up = k.ArrowUp, dn = k.ArrowDown;
+  if (k.Space) { truck.T = 0; truck.v = approach(truck.v, 0, 3.5 * dt); }
+  else {
+    if (up && !dn) truck.T = Math.min(1, truck.T + (truck.T < 0 ? 1.5 : 0.5) * dt);
+    else if (dn && !up) truck.T = Math.max(-1, truck.T - (truck.T > 0 ? 1.5 : 0.5) * dt);
+    else truck.T = approach(truck.T, 0, 1.5 * dt);
+    const vt = truck.T * VMAX;
+    truck.v = approach(truck.v, vt, (Math.abs(vt) > Math.abs(truck.v) && vt * truck.v >= 0 ? 1.0 : 1.4) * dt);
+  }
+  truck.steer = approach(truck.steer, (k.ArrowRight ? 1 : 0) - (k.ArrowLeft ? 1 : 0), 4 * dt);
+  const fv = (k.KeyR ? 1 : 0) - (k.KeyF ? 1 : 0);
+  if (!started && (Math.abs(truck.v) > 0.01 || fv)) started = true;
+  if (started && ex !== undefined) clock += dt;
+
+  const prev = { x: truck.x, z: truck.z, th: truck.th, yf: truck.yf, v: truck.v };
+  truck.th += truck.steer * 1.05 * clamp(truck.v / 0.5, -1, 1) * dt;
+  truck.x += Math.cos(truck.th) * truck.v * dt; truck.z += Math.sin(truck.th) * truck.v * dt;
+  truck.yf = clamp(truck.yf + fv * FORK_SPEED * dt, FORK_MIN, FORK_MAX);
+  if (fv < 0) {   // forks inserted in a pallet rest on the beam: they stop at the bottom of the opening
+    for (const p of pallets) {
+      if (p.carried || p.y <= 0 || !forkPointsInside(p)) continue;
+      const fit = forkFit(p);
+      if (fit.axis && Math.abs(fit.lat) <= LAT_TOL && prev.yf >= p.y + 0.05 - 0.004) truck.yf = Math.max(truck.yf, p.y + 0.05);
+    }
+  }
+
+  if (fv > 0) tryAttach();
+  updateCarried();
+
+  const hit = collide();
+  if (hit) {
+    if (ex && hit.kind === 'hard') { addRed(hit.msg); return; }
+    if (ex && hit.kind === 'soft' && Math.abs(prev.v) > HARD_HIT_SPEED && hardHitCooldown <= 0) { addYellow('Hard hit: ' + hit.msg.toLowerCase()); hardHitCooldown = 2; }
+    Object.assign(truck, { x: prev.x, z: prev.z, th: prev.th, yf: prev.yf, v: 0 });
+    updateCarried();
+  }
+  if (hardHitCooldown > 0) hardHitCooldown -= dt;
+  tryRelease();
+
+  // forks must be low when driving (outside the rack areas)
+  if (ex) {
+    const lim = pallets.some(p => p.carried) ? 0.35 : 0.30;
+    const inZone = truck.x < -7.4 || truck.x > 7.4;
+    if (truck.yf <= lim) { highDist = 0; highFlagged = false; }
+    else if (!inZone && Math.abs(truck.v) > 0.05) {
+      highDist += Math.abs(truck.v) * dt;
+      if (highDist > 1.0 && !highFlagged) { highFlagged = true; addYellow('Driving with the forks raised'); }
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ HUD, sync, camera */
+const $ = id => document.getElementById(id);
+function hintText() {
+  if (!ex) return 'Free drive: lift pallets, stack them in the racks, try the frame.';
+  const carried = pallets.find(p => p.carried);
+  const need = ex.dir === 'AB' ? 'short' : 'long';
+  if (carried) {
+    if (carried.stage === 'carry2') return 'Load it into rack ' + ex.dst + ': ' + (ex.loadOrder[ex.loadCount] ? descText(ex.dst, ex.loadOrder[ex.loadCount]) : '');
+    if (carried.stage === 'carry1') return 'Put the pallet down in the metal frame, then pick it up from the ' + need + ' side.';
+    return 'Put the pallet down.';
+  }
+  const inFrame = pallets.find(p => p.where === 'frame');
+  if (inFrame) return 'Pick the pallet up from the frame, ' + need + ' side.';
+  if (pallets.some(p => p.where === 'floor')) return 'Pick up the pallet from the floor and use the frame.';
+  if (ex.unloadCount < 6 && ex.unloadOrder[ex.unloadCount]) return 'Unload from rack ' + ex.src + ': ' + descText(ex.src, ex.unloadOrder[ex.unloadCount]) + ', ' + (ex.src === 'A' ? 'long' : 'short') + ' side.';
+  return '';
+}
+function updateHUD() {
+  if (appState === 'menu') return;
+  $('htimer').textContent = fmtTime(clock);
+  $('hspeed').textContent = (Math.abs(truck.v) * 3.6).toFixed(1);
+  $('hfork').textContent = Math.round(truck.yf * 100);
+  const free = pallets.find(p => !p.carried && forkFit(p).axis && Math.abs(forkFit(p).lat) <= LAT_TOL && forkFit(p).ratio > 0.02 && truck.yf <= p.y + OPEN_H + 0.3);
+  $('hins').textContent = pallets.some(p => p.carried) ? 'carrying' : free ? Math.round(forkFit(free).ratio * 100) + '%' : '-';
+  $('hdone').textContent = ex ? pallets.filter(p => p.where === 'slot' && p.slot.rack === ex.dst).length + ' / 6' : '-';
+  $('hred').textContent = flags.red.length; $('hyel').textContent = flags.yellow.length;
+  $('hhint').textContent = showHint ? hintText() : '';
+}
+function sync() {
+  truckGroup.position.set(truck.x, 0, truck.z); truckGroup.rotation.y = -truck.th;
+  forkGroup.position.y = truck.yf;
+  pallets.forEach(p => { p.mesh.position.set(p.x, p.y, p.z); p.mesh.rotation.y = -p.ang; });
+}
+const camTarget = new THREE.Vector3();
+function setCam(m, snap) { camMode = m; camera.up.set(0, m === 2 ? 0 : 1, m === 2 ? -1 : 0); if (snap) updateCamera(1, true); }
+function updateCamera(dt, snap) {
+  const f = fwdOf(); let pos, look;
+  if (camMode === 0) { pos = [truck.x - f.x * 3.6, 2.6, truck.z - f.z * 3.6]; look = [truck.x + f.x * 1.2, 0.8, truck.z + f.z * 1.2]; }
+  else if (camMode === 1) { pos = [truck.x - f.x * 1.15, 1.75, truck.z - f.z * 1.15]; look = [truck.x + f.x * 4, 1.0, truck.z + f.z * 4]; }
+  else { pos = [truck.x, 21, truck.z + 0.01]; look = [truck.x, 0, truck.z]; }
+  if (camMode === 0) { pos[0] = clamp(pos[0], -11.7, 11.7); pos[2] = clamp(pos[2], -8.7, 8.7); }
+  const kk = snap || camMode !== 0 ? 1 : 1 - Math.pow(0.002, dt);
+  camera.position.lerp(new THREE.Vector3(...pos), kk); camTarget.lerp(new THREE.Vector3(...look), kk);
+  camera.lookAt(camTarget);
+}
+
+/* ------------------------------------------------------------------ input and loop */
+const BLOCK = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
+window.addEventListener('keydown', e => {
+  if (BLOCK.includes(e.code)) e.preventDefault();
+  if (e.repeat) { keys[e.code] = true; return; }
+  keys[e.code] = true;
+  if (e.code === 'Escape') showMenu();
+  else if (e.code === 'KeyC') setCam((camMode + 1) % 3, true);
+  else if (e.code === 'KeyH') showHint = !showHint;
+  else if (e.code === 'Enter' && mode && appState !== 'menu') startMode(mode);
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+document.querySelectorAll('#menu button').forEach(b => b.addEventListener('click', () => startMode(b.dataset.mode)));
+$('resRestart').addEventListener('click', () => startMode(mode));
+$('resMenu').addEventListener('click', showMenu);
+
+let last = performance.now(), acc = 0;
+function frameLoop(now) {
+  requestAnimationFrame(frameLoop);
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  if (appState === 'run') {
+    acc += dt;
+    while (acc >= 1 / 60) { step(1 / 60); acc -= 1 / 60; if (appState !== 'run') break; }
+  }
+  sync(); updateHUD(); updateCamera(dt, false);
+  renderer.render(scene, camera);
+}
+
+// attract view behind the menu
+startMode('free'); showMenu();
+requestAnimationFrame(frameLoop);
+
+// small hook for automated checks
+window.__sim = {
+  truck, pallets, slots, frame, keys,
+  get state() { return appState; }, get flags() { return flags; }, get ex() { return ex; },
+  start: startMode, step, setCam
+};
+})();
+</script>
+</body>
+</html>
